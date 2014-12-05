@@ -1,6 +1,5 @@
 # GraphX StackOverflow错误诊断与修复过程
 
----
 ## 摘要
 
 故事起因是我们基于GraphX设计并实现了一个迭代型的算法（KCore），在本地小数集上测试通过，但放到集群上运行后总是出现StackOverflow错误。起初我们认为错误原因是某些RDD的lineage随着算法迭代次数增加而不断变长，最后导致Spark在序列化该lineage的时候调用栈溢出。为了解决这个问题，我们通过定期checkpoint来截断lineage。可是checkpoint后，错误仍然出现。迫不得已，我们进行了更为细致的debug来查找是否还有其他影响因素，最后终于找出错误原因还与RDD的 f 函数闭包和GraphX中的一个小bug有关。这两个因素导致task的序列化链可以穿越断掉的lineage，也就是随着迭代次数增加不断增长，最终造成StackOverflow错误。我们提交了3个PR来修复这个错误，虽然都被merge了，但目前来看解决方法还不够优雅。
@@ -17,58 +16,61 @@
 		
 2. 迭代非常多次才能收敛
 
-		//K-Core Algorithm
-		val kNum = 5
-	
-		var degreeGraph = graph.outerJoinVertices(graph.degrees) {
-			(vid, vd, degree) => degree.getOrElse(0)
+	```scala
+	//K-Core Algorithm
+	val kNum = 5
+
+	var degreeGraph = graph.outerJoinVertices(graph.degrees) {
+		(vid, vd, degree) => degree.getOrElse(0)
+	}.cache()
+
+	do {
+		val subGraph = degreeGraph.subgraph(
+			vpred = (vid, degree) => degree >= KNum
+		).cache()
+
+		val newDegreeGraph = subGraph.degrees
+
+		degreeGraph = subGraph.outerJoinVertices(newDegreeGraph) {
+		    (vid, vd, degree) => degree.getOrElse(0)
 		}.cache()
-	
-		do {
-			val subGraph = degreeGraph.subgraph(
-				vpred = (vid, degree) => degree >= KNum
-			).cache()
-	
-			val newDegreeGraph = subGraph.degrees
-	
-			degreeGraph = subGraph.outerJoinVertices(newDegreeGraph) {
-			    (vid, vd, degree) => degree.getOrElse(0)
-			}.cache()
-	
-			isConverged = check(degreeGraph)
-		} while(isConverged == false)
+
+		isConverged = check(degreeGraph)
+	} while(isConverged == false)
+	```
 
 产生的错误栈1（在JDK序列化时产生）：
 
-    Exception in thread "main" org.apache.spark.SparkException: 
-	Job aborted due to stage failure: Task serialization failed: java.lang.StackOverflowError
-		java.io.ObjectOutputStream.writeNonProxyDesc(ObjectOutputStream.java:1275)
-		java.io.ObjectOutputStream.writeClassDesc(ObjectOutputStream.java:1230)
-		...
-		java.io.ObjectOutputStream.writeObject0(ObjectOutputStream.java:1177)
-		java.io.ObjectOutputStream.writeObject(ObjectOutputStream.java:347)
-		scala.collection.immutable.$colon$colon.writeObject(List.scala:379)
-		sun.reflect.GeneratedMethodAccessor3.invoke(Unknown Source)
-		sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-		java.lang.reflect.Method.invoke(Method.java:606)
-
-
+```java
+Exception in thread "main" org.apache.spark.SparkException: 
+Job aborted due to stage failure: Task serialization failed: java.lang.StackOverflowError
+	java.io.ObjectOutputStream.writeNonProxyDesc(ObjectOutputStream.java:1275)
+	java.io.ObjectOutputStream.writeClassDesc(ObjectOutputStream.java:1230)
+	...
+	java.io.ObjectOutputStream.writeObject0(ObjectOutputStream.java:1177)
+	java.io.ObjectOutputStream.writeObject(ObjectOutputStream.java:347)
+	scala.collection.immutable.$colon$colon.writeObject(List.scala:379)
+	sun.reflect.GeneratedMethodAccessor3.invoke(Unknown Source)
+	...
+	sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	java.lang.reflect.Method.invoke(Method.java:606)
+```
 产生的错误栈2（在JDK反序列化时产生）：
 	
-    ERROR Executor: Exception in task 1.0 in stage 339993.0 (TID 3341)
-    java.lang.StackOverflowError
-		at java.lang.StringBuilder.append(StringBuilder.java:204)
-		at java.io.ObjectInputStream$BlockDataInputStream.readUTFSpan(ObjectInputStream.java:3143)
-		...
-    	java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1350)
-    	java.io.ObjectInputStream.readObject(ObjectInputStream.java:370)
-    	scala.collection.immutable.$colon$colon.readObject(List.scala:362)
-    	sun.reflect.GeneratedMethodAccessor2.invoke(Unknown Source)
-    	sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-    	java.lang.reflect.Method.invoke(Method.java:606)
-   		java.io.ObjectStreamClass.invokeReadObject(ObjectStreamClass.java:1017)
-	
-
+```java
+ERROR Executor: Exception in task 1.0 in stage 339993.0 (TID 3341)
+java.lang.StackOverflowError
+	at java.lang.StringBuilder.append(StringBuilder.java:204)
+	at java.io.ObjectInputStream$BlockDataInputStream.readUTFSpan(ObjectInputStream.java:3143)
+	...
+	java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1350)
+	java.io.ObjectInputStream.readObject(ObjectInputStream.java:370)
+	scala.collection.immutable.$colon$colon.readObject(List.scala:362)
+	sun.reflect.GeneratedMethodAccessor2.invoke(Unknown Source)
+	sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	java.lang.reflect.Method.invoke(Method.java:606)
+	java.io.ObjectStreamClass.invokeReadObject(ObjectStreamClass.java:1017)
+```
 
 ## 错误分析
 
@@ -76,31 +78,34 @@
 
 1. driver端在序列化task的时候。具体地点在DAGScheduler.scala
     
-        if (stage.isShuffleMap) { //如果是shuffleMapTask就序列化stage中最后一个RDD及Shuffle依赖关系
-            closureSerializer.serialize((stage.rdd, stage.shuffleDep.get) : AnyRef).array()
-        } else { //如果是ReduceTask就序列化stage中最后一个RDD及用于计算结果的func
-            closureSerializer.serialize((stage.rdd, stage.resultOfJob.get.func) : AnyRef).array()
-        }
+   ```scala
+   if (stage.isShuffleMap) { //如果是shuffleMapTask就序列化stage中最后一个RDD及Shuffle依赖关系
+       closureSerializer.serialize((stage.rdd, stage.shuffleDep.get) : AnyRef).array()
+   } else { //如果是ReduceTask就序列化stage中最后一个RDD及用于计算结果的func
+       closureSerializer.serialize((stage.rdd, stage.resultOfJob.get.func) : AnyRef).array()
+   }
+```
 
 2. executor端在反序列化task的时候。具体地点在
 
 	ShuffleMapTask.scala
-
- 		val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
-      		ByteBuffer.wrap(taskBinary.value), 
-			Thread.currentThread.getContextClassLoader)
-
+	```scala
+	val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
+ 		ByteBuffer.wrap(taskBinary.value), 
+		Thread.currentThread.getContextClassLoader)
+	```
+	
 	或 ResultTask.scala
 
-        val (rdd, func) = ser.deserialize[(RDD[T], 
-			(TaskContext, Iterator[T]) => U)](ByteBuffer.wrap(taskBinary.value),
-			Thread.currentThread.getContextClassLoader)
-
+	```scala
+   val (rdd, func) = ser.deserialize[(RDD[T], 
+		(TaskContext, Iterator[T]) => U)](ByteBuffer.wrap(taskBinary.value),
+		Thread.currentThread.getContextClassLoader)
+	```
 
 
 
 所以，我们认定原因是Spark在序列化task时产生了一条很长的调用链（以下称为序列化链），但是这条链是什么？为什么会那么长？
-
 
 
 1. 分析task在序列化时要序列化哪些内容：
@@ -162,7 +167,7 @@
 
 经过深入的源代码分析+stack分析，我们最后确定这条链可以重新连接被checkpoint断掉的lineage，也就是说序列化的时候可以不通过正常的lineage访问到以前迭代产生的RDDs。图示如下：
 
-<img src="g1.png" alt="替代文本" title="标题文本" width="100%" />
+<img src="figures/g1.png" alt="替代文本" title="标题文本" width="100%" />
 
 
 
@@ -170,11 +175,11 @@
 
 下图显示了我们debug到的`ZippedPartitionsRDD2 -> f -> $outer -> partitionsRDD`的序列化链。
 
-<img src="g2.png" alt="替代文本" title="标题文本" width="100%" />
+<img src="figures/g2.png" alt="替代文本" title="标题文本" width="100%" />
 
 更严重的是，单单这条链不断迭代就可以造成StackOverflow，下图显示了连续不断的，与checkpoint之前一样长的序列化链`VertexRDD -> partitionsRDD -> f -> $outer -> partitionsRDD -> f -> $outer -> VertexRDD -> ...`
 
-<img src="g3.png" alt="替代文本" title="标题文本" width="100%" />
+<img src="figures/g3.png" alt="替代文本" title="标题文本" width="100%" />
 
 
 ## 错误总结
@@ -213,409 +218,414 @@
 ## References
 [1] 造成StackOverflow的完整代码,（需要将最后的收敛条件设置为`filteredCount >= 0L`才能无限迭代产生错误）
 	
-	package graphx.test
+```scala
+package graphx.test
 
-	import org.apache.hadoop.conf.Configuration
-	import org.apache.hadoop.fs.{Path, FileSystem}
-	import org.apache.spark.SparkContext
-	import org.apache.spark.graphx._
-	import org.apache.spark.rdd.RDD
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{Path, FileSystem}
+import org.apache.spark.SparkContext
+import org.apache.spark.graphx._
+import org.apache.spark.rdd.RDD
 
-	/**
-	 * Created by lijie.xlj on 2014/11/26.
-	 */
-	object SimpleIterAppTriggersStackOverflow {
-	
-	  def main(args: Array[String]) {
+/**
+ * Created by lijie.xlj on 2014/11/26.
+ */
+object SimpleIterAppTriggersStackOverflow {
 
-	    val sc = new SparkContext("local[2]", "Kcore")
-	    val checkpointPath = "D:\\data\\checkpoint"
-	    sc.setCheckpointDir(checkpointPath)
-	
-	
-	    val edges: RDD[(Long, Long)] =
-	      sc.parallelize(Array(
-	        (1L, 17L), (2L, 4L),
-	        (3L, 4L), (4L, 17L),
-	        (4L, 16L), (5L, 15L),
-	        (6L, 7L), (7L, 15L),
-	        (8L, 12L), (9L, 12L),
-	        (10L, 12L), (11L, 12L),
-	        (12L, 18L), (13L, 14L),
-	        (13L, 17L), (14L, 17L),
-	        (15L, 16L), (15L, 19L),
-	        (16L, 17L), (16L, 18L),
-	        (16L, 19L), (17L, 18L),
-	        (17L, 19L), (18L, 19L)))
-	
-	
-	    val graph = Graph.fromEdgeTuples(edges, 1).cache()
-	
-	    var degreeGraph = graph.outerJoinVertices(graph.degrees) {
-	      (vid, vd, degree) => degree.getOrElse(0)
-	    }.cache()
-	
-	    var filteredCount = 0L
-	    var iters = 0
-	
-	    val kNum = 5
-	    val checkpointInterval = 10
-	
-	    do {
-	
-	      val subGraph = degreeGraph.subgraph(vpred = (vid, degree) => degree >= kNum).cache()
-	
-	      val preDegreeGraph = degreeGraph
-	      degreeGraph = subGraph.outerJoinVertices(subGraph.degrees) {
-	        (vid, vd, degree) => degree.getOrElse(0)
-	      }.cache()
-	
-	      if (iters % checkpointInterval == 0) {
-	
-	        try {
-	          val fs = FileSystem.get(new Configuration())
-	          if (fs.exists(new Path(checkpointPath)))
-	            fs.delete(new Path(checkpointPath), true)
-	        } catch {
-	          case e: Throwable => {
-	            e.printStackTrace()
-	            println("Something Wrong in GetKCoreGraph Checkpoint Path " + checkpointPath)
-	            System.exit(0)
-	          }
-	        }
-	
-	        degreeGraph.edges.checkpoint()
-	        degreeGraph.vertices.checkpoint()
-	
-	      }
-	
-	      val dVertices = degreeGraph.vertices.count()
-	      val dEdges = degreeGraph.edges.count()
-	
-	      println("[Iter " + iters + "] dVertices = " + dVertices + ", dEdges = " + dEdges)
-	
-	      filteredCount = degreeGraph.vertices.filter {
-	        case (vid, degree) => degree < kNum
-	      }.count()
-	
-	      preDegreeGraph.unpersistVertices()
-	      preDegreeGraph.edges.unpersist()
-	      subGraph.unpersistVertices()
-	      subGraph.edges.unpersist()
-	
-	
-	      iters += 1
-	    } while (filteredCount >= 1L) 
-	
-	    println(degreeGraph.vertices.count())
-	  }
-	}
+  def main(args: Array[String]) {
 
+    val sc = new SparkContext("local[2]", "Kcore")
+    val checkpointPath = "D:\\data\\checkpoint"
+    sc.setCheckpointDir(checkpointPath)
+
+
+    val edges: RDD[(Long, Long)] =
+      sc.parallelize(Array(
+        (1L, 17L), (2L, 4L),
+        (3L, 4L), (4L, 17L),
+        (4L, 16L), (5L, 15L),
+        (6L, 7L), (7L, 15L),
+        (8L, 12L), (9L, 12L),
+        (10L, 12L), (11L, 12L),
+        (12L, 18L), (13L, 14L),
+        (13L, 17L), (14L, 17L),
+        (15L, 16L), (15L, 19L),
+        (16L, 17L), (16L, 18L),
+        (16L, 19L), (17L, 18L),
+        (17L, 19L), (18L, 19L)))
+
+
+    val graph = Graph.fromEdgeTuples(edges, 1).cache()
+
+    var degreeGraph = graph.outerJoinVertices(graph.degrees) {
+      (vid, vd, degree) => degree.getOrElse(0)
+    }.cache()
+
+    var filteredCount = 0L
+    var iters = 0
+
+    val kNum = 5
+    val checkpointInterval = 10
+
+    do {
+
+      val subGraph = degreeGraph.subgraph(vpred = (vid, degree) => degree >= kNum).cache()
+
+      val preDegreeGraph = degreeGraph
+      degreeGraph = subGraph.outerJoinVertices(subGraph.degrees) {
+        (vid, vd, degree) => degree.getOrElse(0)
+      }.cache()
+
+      if (iters % checkpointInterval == 0) {
+
+        try {
+          val fs = FileSystem.get(new Configuration())
+          if (fs.exists(new Path(checkpointPath)))
+            fs.delete(new Path(checkpointPath), true)
+        } catch {
+          case e: Throwable => {
+            e.printStackTrace()
+            println("Something Wrong in GetKCoreGraph Checkpoint Path " + checkpointPath)
+            System.exit(0)
+          }
+        }
+
+        degreeGraph.edges.checkpoint()
+        degreeGraph.vertices.checkpoint()
+
+      }
+
+      val dVertices = degreeGraph.vertices.count()
+      val dEdges = degreeGraph.edges.count()
+
+      println("[Iter " + iters + "] dVertices = " + dVertices + ", dEdges = " + dEdges)
+
+      filteredCount = degreeGraph.vertices.filter {
+        case (vid, degree) => degree < kNum
+      }.count()
+
+      preDegreeGraph.unpersistVertices()
+      preDegreeGraph.edges.unpersist()
+      subGraph.unpersistVertices()
+      subGraph.edges.unpersist()
+
+
+      iters += 1
+    } while (filteredCount >= 1L) 
+
+    println(degreeGraph.vertices.count())
+  }
+}
+```
 [2] lineage demo,未加checkpoint，第一轮迭代
 
-	[Iter 1][DEBUG] (2) EdgeRDD[33] at RDD at EdgeRDD.scala:35
-	|  EdgeRDD ZippedPartitionsRDD2[32] at zipPartitions at ReplicatedVertexView.scala:114
-	|  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
-	|  MappedRDD[11] at map at Graph.scala:392
-	|  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
-	|  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
-	+-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
-	    |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
-	    |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
-	    |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
-	    |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
-	    |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
-	    +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
-	       |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
-	       |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
-	|  ShuffledRDD[31] at partitionBy at ReplicatedVertexView.scala:112
-	+-(2) ReplicatedVertexView.updateVertices - shippedVerts false false (broadcast) MapPartitionsRDD[30] at mapPartitions at VertexRDD.scala:347
-	    |  VertexRDD ZippedPartitionsRDD2[28] at zipPartitions at VertexRDD.scala:174
-	    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
-	    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
-	    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
-	    +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
-	       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
-	       |  MappedRDD[11] at map at Graph.scala:392
-	       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
-	       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
-	       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
-	          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
-	          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
-	          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
-	          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
-	          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
-	          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
-	             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
-	             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
-	    |  VertexRDD ZippedPartitionsRDD2[26] at zipPartitions at VertexRDD.scala:200
-	    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
-	    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
-	    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
-	    +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
-	       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
-	       |  MappedRDD[11] at map at Graph.scala:392
-	       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
-	       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
-	       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
-	          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
-	          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
-	          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
-	          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
-	          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
-	          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
-	             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
-	             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
-	    |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[24] at zipPartitions at VertexRDD.scala:301
-	    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
-	    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
-	    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
-	   +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
-	       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
-	       |  MappedRDD[11] at map at Graph.scala:392
-	       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
-	       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
-	       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
-	          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
-	          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
-	          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
-	          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
-	          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
-	          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
-	             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
-	             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
-	    |  ShuffledRDD[23] at ShuffledRDD at MessageToPartition.scala:31
-	    +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[22] at mapPartitions at GraphImpl.scala:192
-	       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
-	       |  MappedRDD[11] at map at Graph.scala:392
-	       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
-	       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
-	       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
-	          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
-	          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
-	          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
-	          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
-	          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
-	          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
-	            |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
-	             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
-[3] lineage demo,加checkpoint，第5轮迭代
+```scala
+[Iter 1][DEBUG] (2) EdgeRDD[33] at RDD at EdgeRDD.scala:35
+|  EdgeRDD ZippedPartitionsRDD2[32] at zipPartitions at ReplicatedVertexView.scala:114
+|  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
+|  MappedRDD[11] at map at Graph.scala:392
+|  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
+|  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
++-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
+    |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
+    |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
+    |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
+    |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
+    |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
+    +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
+       |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
+       |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
+|  ShuffledRDD[31] at partitionBy at ReplicatedVertexView.scala:112
++-(2) ReplicatedVertexView.updateVertices - shippedVerts false false (broadcast) MapPartitionsRDD[30] at mapPartitions at VertexRDD.scala:347
+    |  VertexRDD ZippedPartitionsRDD2[28] at zipPartitions at VertexRDD.scala:174
+    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
+    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
+    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
+    +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
+       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
+       |  MappedRDD[11] at map at Graph.scala:392
+       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
+       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
+       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
+          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
+          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
+          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
+          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
+          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
+          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
+             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
+             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
+    |  VertexRDD ZippedPartitionsRDD2[26] at zipPartitions at VertexRDD.scala:200
+    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
+    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
+    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
+    +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
+       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
+       |  MappedRDD[11] at map at Graph.scala:392
+       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
+       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
+       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
+          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
+          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
+          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
+          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
+          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
+          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
+             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
+             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
+    |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[24] at zipPartitions at VertexRDD.scala:301
+    |  VertexRDD, VertexRDD MapPartitionsRDD[18] at mapPartitions at VertexRDD.scala:441
+    |  MapPartitionsRDD[17] at mapPartitions at VertexRDD.scala:457
+    |  ShuffledRDD[16] at ShuffledRDD at RoutingTablePartition.scala:36
+   +-(2) VertexRDD.createRoutingTables - vid2pid (aggregation) MapPartitionsRDD[15] at mapPartitions at VertexRDD.scala:452
+       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
+       |  MappedRDD[11] at map at Graph.scala:392
+       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
+       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
+       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
+          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
+          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
+          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
+          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
+          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
+          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
+             |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
+             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:100
+    |  ShuffledRDD[23] at ShuffledRDD at MessageToPartition.scala:31
+    +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[22] at mapPartitions at GraphImpl.scala:192
+       |  EdgeRDD MapPartitionsRDD[12] at mapPartitionsWithIndex at EdgeRDD.scala:169
+       |  MappedRDD[11] at map at Graph.scala:392
+       |  MappedRDD[10] at distinct at KCoreCommonDebug.scala:115
+       |  ShuffledRDD[9] at distinct at KCoreCommonDebug.scala:115
+       +-(2) MappedRDD[8] at distinct at KCoreCommonDebug.scala:115
+          |  FilteredRDD[7] at filter at KCoreCommonDebug.scala:112
+          |  MappedRDD[6] at map at KCoreCommonDebug.scala:102
+          |  MappedRDD[5] at repartition at KCoreCommonDebug.scala:101
+          |  CoalescedRDD[4] at repartition at KCoreCommonDebug.scala:101
+          |  ShuffledRDD[3] at repartition at KCoreCommonDebug.scala:101
+          +-(2) MapPartitionsRDD[2] at repartition at KCoreCommonDebug.scala:101
+            |  D:\graphData\verylarge.txt MappedRDD[1] at textFile at KCoreCommonDebug.scala:100
+             |  D:\graphData\verylarge.txt HadoopRDD[0] at textFile at KCoreCommonDebug.scala:10
+```
 
-	[Iter 5][DEBUG] (2) VertexRDD[113] at RDD at VertexRDD.scala:58
-	|  VertexRDD ZippedPartitionsRDD2[112] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[103] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	|  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
-	    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
-	       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[110] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[103] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	|  CheckpointRDD[56] at apply at List.scala:318
-	|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	|  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
-	    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
-	       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	|  ShuffledRDD[109] at ShuffledRDD at MessageToPartition.scala:31
-	+-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[108] at mapPartitions at GraphImpl.scala:192
-	    |  EdgeRDD MapPartitionsRDD[105] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[97] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	    |  CheckpointRDD[57] at apply at List.scala:318
-	    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
-	    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
-	       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	    |  ShuffledRDD[96] at partitionBy at ReplicatedVertexView.scala:112
-	    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[95] at mapPartitions at VertexRDD.scala:347
-	       |  VertexRDD ZippedPartitionsRDD2[93] at zipPartitions at VertexRDD.scala:174
-	       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	       |  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	       |  CheckpointRDD[56] at apply at List.scala:318
-	       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	       |  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
-	       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
-	          |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	          |  CheckpointRDD[57] at apply at List.scala:318
-	          |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
-	          +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
-	             |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
-	             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	             |  CheckpointRDD[56] at apply at List.scala:318
-	             |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
-	             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	             |  CheckpointRDD[56] at apply at List.scala:318
-	             |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
-	             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
-	             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
-	             |  CheckpointRDD[56] at apply at List.scala:318
-	             |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
-	             +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
-	                |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
-	                |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
-	                |  CheckpointRDD[57] at apply at List.scala:318
+[3] lineage demo,加checkpoint，第5轮迭代
+```scala
+[Iter 5][DEBUG] (2) VertexRDD[113] at RDD at VertexRDD.scala:58
+|  VertexRDD ZippedPartitionsRDD2[112] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[103] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+|  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
+    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
+       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[110] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[103] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+|  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+|  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+|  CheckpointRDD[56] at apply at List.scala:318
+|  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+|  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
+    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
+       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+|  ShuffledRDD[109] at ShuffledRDD at MessageToPartition.scala:31
++-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[108] at mapPartitions at GraphImpl.scala:192
+    |  EdgeRDD MapPartitionsRDD[105] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[97] at zipPartitions at ReplicatedVertexView.scala:114
+    |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
+    |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+    |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+    |  CheckpointRDD[57] at apply at List.scala:318
+    |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
+    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
+       |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+    |  ShuffledRDD[96] at partitionBy at ReplicatedVertexView.scala:112
+    +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[95] at mapPartitions at VertexRDD.scala:347
+       |  VertexRDD ZippedPartitionsRDD2[93] at zipPartitions at VertexRDD.scala:174
+       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+       |  VertexRDD ZippedPartitionsRDD2[91] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[89] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[82] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+       |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+       |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+       |  CheckpointRDD[56] at apply at List.scala:318
+       |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+       |  ShuffledRDD[88] at ShuffledRDD at MessageToPartition.scala:31
+       +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[87] at mapPartitions at GraphImpl.scala:192
+          |  EdgeRDD MapPartitionsRDD[84] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[76] at zipPartitions at ReplicatedVertexView.scala:114
+          |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+          |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+          |  CheckpointRDD[57] at apply at List.scala:318
+          |  ShuffledRDD[75] at partitionBy at ReplicatedVertexView.scala:112
+          +-(2) ReplicatedVertexView.updateVertices - shippedVerts true true (broadcast) MapPartitionsRDD[74] at mapPartitions at VertexRDD.scala:347
+             |  VertexRDD ZippedPartitionsRDD2[72] at zipPartitions at VertexRDD.scala:174
+             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+             |  CheckpointRDD[56] at apply at List.scala:318
+             |  VertexRDD ZippedPartitionsRDD2[70] at zipPartitions at VertexRDD.scala:200
+             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+             |  CheckpointRDD[56] at apply at List.scala:318
+             |  VertexRDD, GraphOps.degrees ZippedPartitionsRDD2[68] at zipPartitions at VertexRDD.scala:301
+             |  VertexRDD MapPartitionsRDD[61] at mapPartitions at VertexRDD.scala:127
+             |  VertexRDD ZippedPartitionsRDD2[47] at zipPartitions at VertexRDD.scala:200
+             |  CheckpointRDD[56] at apply at List.scala:318
+             |  ShuffledRDD[67] at ShuffledRDD at MessageToPartition.scala:31
+             +-(2) GraphImpl.mapReduceTriplets - preAgg MapPartitionsRDD[66] at mapPartitions at GraphImpl.scala:192
+                |  EdgeRDD MapPartitionsRDD[63] at mapPartitions at EdgeRDD.scala:85
+                |  EdgeRDD ZippedPartitionsRDD2[53] at zipPartitions at ReplicatedVertexView.scala:114
+                |  CheckpointRDD[57] at apply at List.scala:318
+```
