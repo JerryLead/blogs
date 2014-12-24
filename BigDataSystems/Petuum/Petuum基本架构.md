@@ -24,7 +24,7 @@ PS is a key-value store that allows different processes to share access to a set
 	
 ##  数据模型
  
-在PS中，parameters被表示成key-value paris，并存放在多个Table中。每一个table包含多个Rows，每个Row有一个RowID。Row中的每一个cell都包含一个Column ID，每个cell一般存放一个parameter。这样存放到Parameter Server中的每个parameter可以表示成<RowID, ColumnID, Parameter>。
+在PS中，parameters被表示成key-value paris，并存放在多个Table中。每一个table包含多个Rows，每个Row的类型都相同，且有一个RowID。Row中的每一个cell都包含一个Column ID，每个cell一般存放一个parameter。这样存放到Parameter Server中的每个parameter可以表示成<RowID, ColumnID, Parameter>。Table存放在一台或者多台机器上。
 
 Table-Row既是数据模型也是存储格式。PS允许app选择适合自己的数据结构来组织每个row中的parameters，甚至允许app自定义Rows。
 
@@ -76,8 +76,8 @@ petuum::ClientTableConfig table_config;table_config.table_info.row_type = 0;ta
 | 名称 | 默认值 | 解释|
 |:-----|:------|:-------|
 | table\_info.row\_type| N/A | row type|
-| table\_info.row\_capacity| 0 | 对于 DenseRow，需要设置它的大小|
-| process\_cache\_capacity| 0 | table最多可以包含多少row|
+| table\_info.row\_capacity| 0 | 对于 DenseRow，指column个数，对SparseRow无效|
+| process\_cache\_capacity| 0 | row个数|
 | process\_oplog\_capacity | 0 | update table里面最多可以写入多少个row|
 
 调用`CreateTable()`后，就会去创建tables，创建好后需要调用下面的API来完成table创建过程。
@@ -152,6 +152,8 @@ Petuum提供了两种更新参数的方式：
 	```
 
 ### 4. Completion of A Clock Tick
+
+Inform PS that this thread is advancing to the next iteration, workers only commit their updates at the end of each clock.
 
 ```c++
 static void petuum::PSTableGroup::Clock();
