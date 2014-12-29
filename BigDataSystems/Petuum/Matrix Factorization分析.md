@@ -103,4 +103,26 @@ Server thread需要设置consistency_model，具体如下：
 Client的main thread会利用StandardMatrixLoader将整个Matrix load到内存，然后让每个worker thread顺序访问。
 
 ## matrixfact.CreateTable()
-CreateTable() 先设置table的`max_table_staleness`属性，然后调用`Bgworkers::CreateTable(table_id, table_config)`。
+CreateTable() 先设置table的`max_table_staleness`属性，然后调用`Bgworkers::CreateTable(table_id, table_config)`，该函数会将要create的Table信息通过`SendInProc(id_st_=100, msg, msg_size)`发送给Bg thread。
+
+Bg thread initialization logic:
+- Establish connections with all server threads (app threads cannot send message to bg threads until this is done);
+- Wait on a "Start" message from each server thread;
+- Receive connections from all app threads. Server message (currently none for pull model) may come in at the same time.
+
+在初始化`petuum::PSTableGroup::Init(table_group_config, false);`里面就调用Bg thread的`SSPBgThreadMain()`的方法，然后调用`BgWorkers::HandleCreateTables()`方法。由于在Init()的时候，还没有createTable的需求，因此`BgWorkers::HandleCreateTables()`会快速返回。当main()中调用createTable时，比如，` petuum::PSTableGroup::CreateTable(0,table_config);
+` 会向bg thread发送createTable的消息（类型是kBgCreateTable），然后标号是100的bg thread会调用HandleCreateTable()，bg thread的HandleCreateTable()会向NamNode发送创建Table的信息，收到NameNode反馈的信息后，会使用下面的语句来真正地创建表，也就是说Table存在于bg thread中：
+
+```c++
+client_table  = new ClientTable(table_id, client_table_config);
+```
+
+在创建一个Table时，会同时创建其Consistency model，目前只有两种：
+- SSP：对应创建 SSPConsistencyController
+- SSPPush：对应创建 SSPPushConsistencyController
+
+在MF中，L，R和Loss table的Consistency model都是SSPPush。
+
+ConsistencyController负责控制对Table的访问，提供了GetAsync(row_id)，Get(row_id, row_accessor), ThreadGet(row_id, row_accessor)等方法。其中最重要的方法是Get(row_id)，该方法会check freshness，如果row_id不存在或者stale is too old。
+
+bg thread创建完表以后，会将创建完的信息发送给main() thread。
