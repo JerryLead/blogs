@@ -1,0 +1,14 @@
+xulijie@ubuntu:~/dev/Petuum/petuum-0.93/apps/matrixfact$ Data mode: Loading matrix sampledata/9x9_3blocks into memory...
+Matrix dimensions: 9 by 9
+# non-missing entries: 81
+Factorization rank: 3
+# client machines: 2
+# worker threads per client: 2
+SSP staleness: 5
+Step size formula: 0.5 * (100 + t)^(-0.5)
+Regularization strength lambda: 0.1
+  (Note: displayed loss function does not include regularization term)
+Iteration 1/2... loss function = 81.5027... elapsed time = 0.082
+Iteration 2/2... loss function = 157.365... elapsed time = 0.007
+Outputting results to prefix mf_output ... done
+total runtime = 2.925s

@@ -1,0 +1,323 @@
+Log file created at: 2014/12/30 15:22:17
+Running on machine: ubuntu2
+Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg
+I1230 15:22:17.474882  8866 comm_bus.cpp:117] CommBus ThreadRegister()
+I1230 15:22:17.475028  8866 server_threads.cpp:92] RowSubscribe = SSPPushRowSubscribe
+I1230 15:22:17.475034  8866 server_threads.cpp:106] Create server thread 0
+I1230 15:22:17.475098  8867 server_threads.cpp:239] ServerThreads num_clients = 2
+I1230 15:22:17.475103  8867 server_threads.cpp:240] my id = 1000
+I1230 15:22:17.475110  8867 server_threads.cpp:246] network addr = 192.168.40.101:10000
+I1230 15:22:17.475113  8867 comm_bus.cpp:117] CommBus ThreadRegister()
+I1230 15:22:17.475584  8867 server_threads.cpp:252] Server thread registered CommBus
+I1230 15:22:17.475623  8867 server_threads.cpp:144] Connect to remote name node
+I1230 15:22:17.475628  8867 server_threads.cpp:147] name_node_addr = 192.168.40.100:9999
+I1230 15:22:17.475725  8870 bg_workers.cpp:889] Bg Worker starts here, my_id = 1100
+I1230 15:22:17.475742  8870 comm_bus.cpp:117] CommBus ThreadRegister()
+I1230 15:22:17.475757  8870 bg_workers.cpp:283] ConnectToNameNodeOrServer server_id = 0
+I1230 15:22:17.475761  8870 bg_workers.cpp:293] Connect to remote server 0
+I1230 15:22:17.475764  8870 bg_workers.cpp:296] server_addr = 192.168.40.100:9999
+I1230 15:22:17.478379  8870 bg_workers.cpp:283] ConnectToNameNodeOrServer server_id = 1
+I1230 15:22:17.478387  8870 bg_workers.cpp:293] Connect to remote server 1
+I1230 15:22:17.478390  8870 bg_workers.cpp:296] server_addr = 192.168.40.100:10000
+I1230 15:22:17.480212  8870 bg_workers.cpp:283] ConnectToNameNodeOrServer server_id = 1000
+I1230 15:22:17.480221  8870 bg_workers.cpp:290] Connect to local server 1000
+I1230 15:22:17.480249  8870 bg_workers.cpp:368] get kClientStart from 0 num_started_servers = 0
+I1230 15:22:17.481348  8870 bg_workers.cpp:368] get kClientStart from 1 num_started_servers = 1
+I1230 15:22:17.481624  8867 server_threads.cpp:187] InitNonNameNode done
+I1230 15:22:17.481638  8870 bg_workers.cpp:368] get kClientStart from 1000 num_started_servers = 2
+I1230 15:22:17.481751  8870 bg_workers.cpp:911] head bg handles CreateTable
+I1230 15:22:17.505518  8870 oplog_index.cpp:42] Constructor shared_oplog_index = 0x13e5700
+I1230 15:22:17.505545  8870 bg_workers.cpp:439] Reply app thread 1200
+I1230 15:22:17.508220  8870 oplog_index.cpp:42] Constructor shared_oplog_index = 0x13e5840
+I1230 15:22:17.508232  8870 bg_workers.cpp:439] Reply app thread 1200
+I1230 15:22:17.510934  8870 oplog_index.cpp:42] Constructor shared_oplog_index = 0x13e5a00
+I1230 15:22:17.510947  8870 bg_workers.cpp:439] Reply app thread 1200
+I1230 15:22:17.511045  8872 comm_bus.cpp:117] CommBus ThreadRegister()
+I1230 15:22:17.511118  8871 comm_bus.cpp:117] CommBus ThreadRegister()
+I1230 15:22:17.512034  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.512040  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.512049  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.512053  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.512056  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.512743  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.512749  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.512753  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.512754  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.512758  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.513478  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.513485  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.513488  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.513521  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.513525  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.514166  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.514173  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514175  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514178  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514179  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.514829  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.514837  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514838  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514842  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.514843  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.515512  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.515518  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.515522  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.515523  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.515525  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.523031  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.523054  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.523059  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.523062  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.523066  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.523350  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.523357  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.523361  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.523363  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.523366  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.523370  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.523473  8870 server_version_mgr.cpp:51] Server id = 1000 original server version = 4294967295Set server version = 5
+I1230 15:22:17.523481  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.523488  8870 server_version_mgr.cpp:51] Server id = 1 original server version = 4294967295Set server version = 5
+I1230 15:22:17.523491  8870 server_version_mgr.cpp:61] IsUniqueMin!! server id = 1 version = 5
+I1230 15:22:17.523496  8870 server_version_mgr.cpp:92] New min_version_ = 5
+I1230 15:22:17.523499  8870 ssp_push_row_request_oplog_mgr.cpp:129] server id  = 1 version to remove = 5
+I1230 15:22:17.523519  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.525842  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.525852  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525856  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525857  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525893  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.525902  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.525904  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.525907  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.525909  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.525913  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.525914  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.525928  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.525930  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525933  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525935  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.525938  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.526305  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.526319  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526322  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.526324  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526326  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.526329  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526343  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.526346  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526348  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526350  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526353  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.526689  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.526695  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526698  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.526700  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526702  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.526705  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.526713  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.526716  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526718  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526721  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.526722  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.527147  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.527159  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527163  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.527165  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527168  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.527169  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527186  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.527189  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.527191  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.527194  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.527196  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.527624  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.527678  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527683  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.527684  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527688  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.527689  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.527811  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527822  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527827  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527832  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527835  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527959  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527986  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.527997  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.528008  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.528018  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.528100  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 6 There's a previous request requesting clock 6
+I1230 15:22:17.528393  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.528705  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.529086  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.529573  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.529762  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.530083  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.530362  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.590853  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.597518  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.597622  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.599817  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.599916  8870 ssp_push_row_request_oplog_mgr.cpp:55] I'm requesting clock is 1 There's a previous request requesting clock 1
+I1230 15:22:17.601063  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.601071  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.601075  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.601078  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.601080  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.603108  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.603118  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.603121  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.603124  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.603127  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.603134  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.603173  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.603176  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.603179  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.603181  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.603184  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.603328  8870 server_version_mgr.cpp:51] Server id = 1000 original server version = 5Set server version = 6
+I1230 15:22:17.603337  8870 serialized_row_reader.hpp:64] mem_size_ = 216
+I1230 15:22:17.603554  8870 server_version_mgr.cpp:51] Server id = 1 original server version = 5Set server version = 6
+I1230 15:22:17.603560  8870 server_version_mgr.cpp:61] IsUniqueMin!! server id = 1 version = 6
+I1230 15:22:17.603564  8870 server_version_mgr.cpp:92] New min_version_ = 6
+I1230 15:22:17.603565  8870 ssp_push_row_request_oplog_mgr.cpp:129] server id  = 1 version to remove = 6
+I1230 15:22:17.603575  8870 serialized_row_reader.hpp:64] mem_size_ = 292
+I1230 15:22:17.604626  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.604634  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.604637  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.604640  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.604642  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.605319  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.605325  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605329  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605330  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605332  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.605978  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.605985  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605988  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605990  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.605993  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.606648  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.606654  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.606657  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.606659  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.606662  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.607377  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.607383  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.607385  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.607388  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.607390  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.608032  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.608039  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608062  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608065  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608067  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.608726  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.608732  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608736  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608737  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.608739  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.608836  8867 server_threads.cpp:419] get ClientShutDown from bg 1100
+I1230 15:22:17.616081  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616102  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.616107  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 4
+I1230 15:22:17.616111  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616113  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616122  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616125  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616128  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616132  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616133  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616137  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616154  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616158  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616160  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616163  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616165  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616168  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616171  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616173  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616175  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616178  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616180  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616185  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616189  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616190  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616194  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616195  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616199  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616200  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616204  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616205  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616207  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616209  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616215  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616252  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616255  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616257  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616261  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616264  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616266  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616269  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616271  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616273  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616276  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616298  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616303  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616305  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616307  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616309  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616313  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616315  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616318  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616320  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616322  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616324  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616330  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616333  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616335  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616338  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616339  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.616595  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.616602  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616605  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.616607  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616610  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.616612  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.616621  8867 serialized_oplog_reader.hpp:57] SerializedOpLogReader Restart(), num_tables_left = 3
+I1230 15:22:17.616623  8867 serialized_oplog_reader.hpp:119] current_table_id = 0 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616626  8867 serialized_oplog_reader.hpp:119] current_table_id = 1 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616627  8867 serialized_oplog_reader.hpp:119] current_table_id = 2 update_size = 4 rows_left_in_current_table_ = 0
+I1230 15:22:17.616631  8867 server.cpp:202] Read and Apply Update Done
+I1230 15:22:17.622216  8870 server_version_mgr.cpp:51] Server id = 1000 original server version = 6Set server version = 13
+I1230 15:22:17.622227  8870 serialized_row_reader.hpp:64] mem_size_ = 216
+I1230 15:22:17.622247  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622252  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622257  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622262  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622267  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622270  8870 server_version_mgr.cpp:51] Server id = 1 original server version = 6Set server version = 13
+I1230 15:22:17.622306  8870 server_version_mgr.cpp:61] IsUniqueMin!! server id = 1 version = 13
+I1230 15:22:17.622311  8870 server_version_mgr.cpp:92] New min_version_ = 13
+I1230 15:22:17.622314  8870 ssp_push_row_request_oplog_mgr.cpp:129] server id  = 1 version to remove = 13
+I1230 15:22:17.622330  8870 serialized_row_reader.hpp:64] mem_size_ = 292
+I1230 15:22:17.622346  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622351  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622355  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622360  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622364  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.622370  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.628597  8870 bg_workers.cpp:970] get ServerShutDownAck from server 0
+I1230 15:22:17.628619  8870 bg_workers.cpp:970] get ServerShutDownAck from server 1
+I1230 15:22:17.663645  8867 server.cpp:236] Serializing table 2
+I1230 15:22:17.663669  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.663674  8867 server.cpp:236] Serializing table 1
+I1230 15:22:17.663676  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.663679  8867 server.cpp:236] Serializing table 0
+I1230 15:22:17.663682  8867 server_table.hpp:83] tmp_row_buff_size_ = 512
+I1230 15:22:17.663833  8870 serialized_row_reader.hpp:64] mem_size_ = 24
+I1230 15:22:17.663854  8867 server_threads.cpp:419] get ClientShutDown from bg 100
+I1230 15:22:17.663864  8870 bg_workers.cpp:970] get ServerShutDownAck from server 1000
+I1230 15:22:17.663868  8870 bg_workers.cpp:973] Bg worker 1100 shutting down
+I1230 15:22:17.664058  8867 server_threads.cpp:422] Server shutdown
