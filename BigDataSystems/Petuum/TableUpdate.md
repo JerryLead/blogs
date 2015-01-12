@@ -1,9 +1,18 @@
 # TableUpdate
 
+## ClientTable Upadte
+图示如下：
+
+![TableUpdate](figures/TableUpdate.png)
+
+代码分析：
+
 ```c++
 void SSPConsistencyController::BatchInc(int32_t row_id,
   const int32_t* column_ids, const void* updates, int32_t num_updates) {
 
+  // updates就是每个col上要increase的value。
+  // 比如，col 1和col 3都要加1，那么column_ids = {1, 3}，updates = {1, 1}
   // thread_cache_是ThreadTable的指针，ThreadTable就是ClientTable或者ServerTable
   // IndexUpadte(row_id)会
   thread_cache_->IndexUpdate(row_id);
