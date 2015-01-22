@@ -18,7 +18,7 @@ Server thread启动后，会不断循环等待消息，当收到Namenode发来�
 5. Server object里面有个`map<table_id, ServerTable> tables`数据结构，`CreateTable(table_id)`就是new出一个ServerTable，然后将其加入这个map。
 6. ServerTable object会存放`table_info`，并且有一个`map<row_id, ServerRow> storage`，这个map用来存放ServerTable中的rows。另外还有一个`tmp_row_buff[row_length]`的buffer。new ServerTable时，只是初始化一些这些数据结构。
 
-## ProcessClientSendOpLogMsg
+## HandleClientSendOpLogMsg
 
 当某个server thread收到client里bg thread发来的`client_send_oplog_msg`时，会调用ServerThreads的`HandleOpLogMsg(client_send_oplog_msg)`，该函数会执行如下步骤：
 
@@ -51,7 +51,7 @@ Server thread启动后，会不断循环等待消息，当收到Namenode发来�
 2. 如果`bg_id`对应的原始clock是VectorClock中最小值，且是唯一的最小值，那么clock+1后，需要更新client对应的clock，也就是对`client_clocks.Tick(client_id)`。
 3. 然后看是否达到了snapshot的clock，达到就进行checkpoint。
 
-## ProcessRowRequestMsg
+## HandleRowRequestMsg
 
 当某个server thread收到client里bg thread发来的`row_request_msg`时，会调用ServerThreads的`HandleRowRequest(bg_id, row_request_msg)`，该函数会执行如下步骤：
 
@@ -67,3 +67,14 @@ Server thread启动后，会不断循环等待消息，当收到Namenode发来�
 
 
 ### `ServerObj.AddRowRequest(sender_id, table_id, row_id, clock)`
+
+当来自client的request当前无法被处理的时候（server的row太old），server会调用这个函数将请求先放到队列里。具体执行如下步骤：
+
+1. 先new一个ServerRowRequest的结构体，将`bg_id, table_id, row_id, clock`放到这个结构体中。
+2. 将ServerRowRequest放进`map<clock, vector<ServerRowRequest>> clock_bg_row_requests`中，该数据结构的key是clock，vector中的index是`bg_id`，value是ServerRowRequest。
+
+### `ReplyRowRequest(sender_id, server_row, table_id, row_id, server_clock, version)`
+
+1. 先构造一个`ServerRowRequestReplyMsg`，然后将`table_id, row_id, server_clock, version`填入这个msg中。
+2. 然后将msg序列化后发回给`bg_id`对应的bg thread。
+
