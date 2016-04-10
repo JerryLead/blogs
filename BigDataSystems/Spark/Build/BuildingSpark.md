@@ -13,7 +13,7 @@ To build spark-1.6.0 using SBT, we can
 3. Generate idea modules 
 	```shell
 	cd Spark-1.6.0
-	./sbt/sbt 'gen-idea no-classifiers no-sbt-classifiers'
+	run ./sbt/sbt 'gen-idea no-classifiers no-sbt-classifiers' // faster
 	or  ./sbt/sbt gen-idea
 	```
 	
@@ -21,5 +21,12 @@ To build spark-1.6.0 using SBT, we can
 	```shell
 	File -> Project from Existing Sources -> SBT -> Use auto-import -> Finish
 	```
-    
+5. Select the profilers
+	```shell
+	Maven projects -> Select hadoop-1, maven-3, sbt, scala-2.10, unix
+	```
+6. Cancel SBT's auto-import
+    ```shell
+	File -> Setttings -> SBT -> Cancel Use auto-import
+	```
 	
