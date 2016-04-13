@@ -30,3 +30,9 @@ To build spark-1.6.0 using SBT, we can
 	File -> Setttings -> SBT -> Cancel Use auto-import
 	```
 	
+When encountering some build errors, we can refer to:
+
+1. http://stackoverflow.com/questions/25211071/compilation-errors-in-spark-datatypeconversions-scala-on-intellij-when-using-m
+2. http://stackoverflow.com/questions/33311794/import-spark-source-code-into-intellj-build-error-not-found-type-sparkflumepr
+3. http://blog.csdn.net/tanglizhe1105/article/details/50530104
+4. http://www.iteblog.com/archives/1038
